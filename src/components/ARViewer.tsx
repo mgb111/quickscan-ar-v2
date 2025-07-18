@@ -50,7 +50,7 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
     }
   }, []);
 
-  const loadScript = (src: string): Promise<void> => {
+  const loadScript = React.useCallback((src: string): Promise<void> => {
     return new Promise((resolve, reject) => {
       const existingScript = document.querySelector(`script[src="${src}"]`);
       if (existingScript) {
@@ -80,16 +80,16 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
 
       document.head.appendChild(script);
     });
-  };
+  }, []);
 
   const loadARLibraries = React.useCallback(async (): Promise<void> => {
     // Load A-Frame
-    if (typeof (window as any).AFRAME === 'undefined') {
+    if (typeof (window as unknown as { AFRAME?: unknown }).AFRAME === 'undefined') {
       await loadScript('https://aframe.io/releases/1.4.0/aframe.min.js');
     }
 
     // Load AR.js (simpler and more reliable than MindAR)
-    if (typeof (window as any).THREEx === 'undefined') {
+    if (typeof (window as unknown as { THREEx?: unknown }).THREEx === 'undefined') {
       await loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/build/aframe-ar.min.js');
     }
 
@@ -164,12 +164,17 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
         const video = document.querySelector('video[data-aframe-canvas]') || 
                      document.querySelector('#ar-scene video') ||
                      document.querySelector('video');
-        if (video && video instanceof HTMLVideoElement && video.videoWidth > 0 && video.videoHeight > 0) {
-          clearTimeout(timeout);
-          resolve(void 0);
+        if (video && video instanceof HTMLVideoElement) {
+          console.log('Video element found:', video, 'videoWidth:', video.videoWidth, 'videoHeight:', video.videoHeight);
+          if (video.videoWidth > 0 && video.videoHeight > 0) {
+            clearTimeout(timeout);
+            resolve(void 0);
+            return;
+          }
         } else {
-          setTimeout(checkCamera, 200);
+          console.warn('No video element found for AR scene');
         }
+        setTimeout(checkCamera, 200);
       };
 
       // Start checking after a brief delay
