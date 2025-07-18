@@ -14,7 +14,7 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
   const [loadingStep, setLoadingStep] = useState('Initializing AR...');
   const sceneRef = useRef<HTMLDivElement>(null);
 
-  const checkCameraPermissions = async (): Promise<void> => {
+  const checkCameraPermissions = React.useCallback(async (): Promise<void> => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Camera access is not supported in this browser. Please use Chrome, Firefox, or Safari.');
     }
@@ -48,7 +48,7 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
         throw new Error('Unknown camera error');
       }
     }
-  };
+  }, []);
 
   const loadScript = (src: string): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -82,7 +82,7 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
     });
   };
 
-  const loadARLibraries = async (): Promise<void> => {
+  const loadARLibraries = React.useCallback(async (): Promise<void> => {
     // Load A-Frame
     if (typeof (window as any).AFRAME === 'undefined') {
       await loadScript('https://aframe.io/releases/1.4.0/aframe.min.js');
@@ -95,9 +95,9 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
 
     // Wait for libraries to initialize
     await new Promise(resolve => setTimeout(resolve, 500));
-  };
+  }, [loadScript]);
 
-  const createARScene = async (): Promise<void> => {
+  const createARScene = React.useCallback(async (): Promise<void> => {
     if (!sceneRef.current) {
       throw new Error('Scene container not found');
     }
@@ -175,7 +175,7 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
       // Start checking after a brief delay
       setTimeout(checkCamera, 1000);
     });
-  };
+  }, [sceneRef, experience]);
 
   const initializeAR = React.useCallback(async () => {
     try {
