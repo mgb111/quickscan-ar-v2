@@ -14,7 +14,7 @@ function App() {
     setViewMode('upload');
   };
 
-  const handleUploadComplete = (experienceId: string) => {
+  const handleUploadComplete = () => {
     setViewMode('gallery');
   };
 

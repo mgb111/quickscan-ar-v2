@@ -1,6 +1,5 @@
 import React, { useState, useCallback } from 'react';
 import { Upload, Image as ImageIcon, Video, Box, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import type { ARExperience } from '../types';
 
 interface UploadInterfaceProps {
@@ -145,7 +144,7 @@ export default function UploadInterface({ onUploadComplete }: UploadInterfacePro
       }
 
       const experience = await response.json();
-      onUploadComplete(experience);
+      onUploadComplete(experience.experience);
       
       // Reset form
       setMarkerFile(null);

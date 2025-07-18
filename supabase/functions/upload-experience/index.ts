@@ -37,7 +37,7 @@ serve(async (req) => {
     const markerImageExt = markerImage.name.split('.').pop();
     const markerImagePath = `${experienceId}_marker.${markerImageExt}`;
     
-    const { data: markerImageData, error: markerImageError } = await supabase.storage
+    const { error: markerImageError } = await supabase.storage
       .from('ar-markers')
       .upload(markerImagePath, markerImage, {
         cacheControl: '3600',
@@ -52,7 +52,7 @@ serve(async (req) => {
     const contentFileExt = contentFile.name.split('.').pop();
     const contentFilePath = `${experienceId}_content.${contentFileExt}`;
     
-    const { data: contentFileData, error: contentFileError } = await supabase.storage
+    const { error: contentFileError } = await supabase.storage
       .from('ar-content')
       .upload(contentFilePath, contentFile, {
         cacheControl: '3600',

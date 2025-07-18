@@ -14,61 +14,6 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
   const [loadingStep, setLoadingStep] = useState('Initializing AR...');
   const sceneRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (experience.status !== 'ready') {
-      setError('Experience is not ready yet. Please try again later.');
-      setIsLoading(false);
-      return;
-    }
-
-    initializeAR();
-
-    return () => {
-      cleanup();
-    };
-  }, [experience]);
-
-  const cleanup = () => {
-    // Stop any active camera streams
-    if (navigator.mediaDevices?.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then(stream => {
-          stream.getTracks().forEach(track => track.stop());
-        })
-        .catch(() => {
-          // Ignore cleanup errors
-        });
-    }
-  };
-
-  const initializeAR = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      setArReady(false);
-
-      // Step 1: Check camera permissions
-      setLoadingStep('Requesting camera access...');
-      await checkCameraPermissions();
-
-      // Step 2: Load AR libraries
-      setLoadingStep('Loading AR libraries...');
-      await loadARLibraries();
-
-      // Step 3: Create AR scene
-      setLoadingStep('Setting up AR scene...');
-      await createARScene();
-
-      setArReady(true);
-      setIsLoading(false);
-
-    } catch (err) {
-      console.error('Failed to initialize AR:', err);
-      setError(err instanceof Error ? err.message : 'Failed to initialize AR');
-      setIsLoading(false);
-    }
-  };
-
   const checkCameraPermissions = async (): Promise<void> => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Camera access is not supported in this browser. Please use Chrome, Firefox, or Safari.');
@@ -89,30 +34,20 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
       // Small delay to ensure camera is properly released
       await new Promise(resolve => setTimeout(resolve, 100));
       
-    } catch (err: any) {
-      if (err.name === 'NotAllowedError') {
-        throw new Error('Camera access denied. Please allow camera permissions and refresh the page.');
-      } else if (err.name === 'NotFoundError') {
-        throw new Error('No camera found. Please ensure your device has a camera.');
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'name' in err) {
+        const errorName = (err as { name: string }).name;
+        if (errorName === 'NotAllowedError') {
+          throw new Error('Camera access denied. Please allow camera permissions and refresh the page.');
+        } else if (errorName === 'NotFoundError') {
+          throw new Error('No camera found. Please ensure your device has a camera.');
+        } else {
+          throw new Error(`Camera error: ${(err as { message?: string }).message || 'Unknown error'}`);
+        }
       } else {
-        throw new Error(`Camera error: ${err.message}`);
+        throw new Error('Unknown camera error');
       }
     }
-  };
-
-  const loadARLibraries = async (): Promise<void> => {
-    // Load A-Frame
-    if (typeof (window as any).AFRAME === 'undefined') {
-      await loadScript('https://aframe.io/releases/1.4.0/aframe.min.js');
-    }
-
-    // Load AR.js (simpler and more reliable than MindAR)
-    if (typeof (window as any).THREEx === 'undefined') {
-      await loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/build/aframe-ar.min.js');
-    }
-
-    // Wait for libraries to initialize
-    await new Promise(resolve => setTimeout(resolve, 500));
   };
 
   const loadScript = (src: string): Promise<void> => {
@@ -126,7 +61,7 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
       const script = document.createElement('script');
       script.src = src;
       script.async = true;
-      
+
       const timeout = setTimeout(() => {
         script.remove();
         reject(new Error(`Timeout loading script: ${src}`));
@@ -145,6 +80,21 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
 
       document.head.appendChild(script);
     });
+  };
+
+  const loadARLibraries = async (): Promise<void> => {
+    // Load A-Frame
+    if (typeof (window as any).AFRAME === 'undefined') {
+      await loadScript('https://aframe.io/releases/1.4.0/aframe.min.js');
+    }
+
+    // Load AR.js (simpler and more reliable than MindAR)
+    if (typeof (window as any).THREEx === 'undefined') {
+      await loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/build/aframe-ar.min.js');
+    }
+
+    // Wait for libraries to initialize
+    await new Promise(resolve => setTimeout(resolve, 500));
   };
 
   const createARScene = async (): Promise<void> => {
@@ -214,8 +164,7 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
         const video = document.querySelector('video[data-aframe-canvas]') || 
                      document.querySelector('#ar-scene video') ||
                      document.querySelector('video');
-        
-        if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+        if (video && video instanceof HTMLVideoElement && video.videoWidth > 0 && video.videoHeight > 0) {
           clearTimeout(timeout);
           resolve(void 0);
         } else {
@@ -226,6 +175,67 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
       // Start checking after a brief delay
       setTimeout(checkCamera, 1000);
     });
+  };
+
+  const initializeAR = React.useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      setArReady(false);
+
+      // Step 1: Check camera permissions
+      setLoadingStep('Requesting camera access...');
+      await checkCameraPermissions();
+
+      // Step 2: Load AR libraries
+      setLoadingStep('Loading AR libraries...');
+      await loadARLibraries();
+
+      // Step 3: Create AR scene
+      setLoadingStep('Setting up AR scene...');
+      await createARScene();
+
+      setArReady(true);
+      setIsLoading(false);
+
+    } catch (err: unknown) {
+      console.error('Failed to initialize AR:', err);
+      if (err instanceof Error) {
+        setError(err.message);
+      } else if (typeof err === 'string') {
+        setError(err);
+      } else {
+        setError('Failed to initialize AR');
+      }
+      setIsLoading(false);
+    }
+  }, [checkCameraPermissions, loadARLibraries, createARScene]);
+
+  useEffect(() => {
+    if (experience.status !== 'ready') {
+      setError('Experience is not ready yet. Please try again later.');
+      setIsLoading(false);
+      return;
+    }
+
+    initializeAR();
+
+    return () => {
+      cleanup();
+    };
+  }, [experience, initializeAR]);
+
+  const cleanup = () => {
+    // Stop any active camera streams
+    if (navigator.mediaDevices?.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          stream.getTracks().forEach(track => track.stop());
+        })
+        .catch(() => {
+          // Ignore cleanup errors
+        });
+    }
   };
 
   const handleRetry = () => {
