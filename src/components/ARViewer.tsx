@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Loader2, AlertCircle, Eye, Camera } from 'lucide-react';
 import type { ARExperience } from '../types';
 
@@ -12,252 +12,144 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [arReady, setArReady] = useState(false);
   const [loadingStep, setLoadingStep] = useState('Initializing AR...');
-  const sceneRef = useRef<HTMLDivElement>(null);
+  const mindarContainerRef = useRef<HTMLDivElement>(null);
+  const mindarInstanceRef = useRef<any>(null);
 
-  const checkCameraPermissions = React.useCallback(async (): Promise<void> => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('Camera access is not supported in this browser. Please use Chrome, Firefox, or Safari.');
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        } 
-      });
-      
-      // Stop the stream immediately - we just needed to check permissions
-      stream.getTracks().forEach(track => track.stop());
-      
-      // Small delay to ensure camera is properly released
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-    } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'name' in err) {
-        const errorName = (err as { name: string }).name;
-        if (errorName === 'NotAllowedError') {
-          throw new Error('Camera access denied. Please allow camera permissions and refresh the page.');
-        } else if (errorName === 'NotFoundError') {
-          throw new Error('No camera found. Please ensure your device has a camera.');
-        } else {
-          throw new Error(`Camera error: ${(err as { message?: string }).message || 'Unknown error'}`);
-        }
-      } else {
-        throw new Error('Unknown camera error');
-      }
-    }
-  }, []);
-
-  const loadScript = React.useCallback((src: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const existingScript = document.querySelector(`script[src="${src}"]`);
-      if (existingScript) {
-        resolve();
-        return;
-      }
-
+  // Helper to load external scripts/styles
+  const loadScript = (src: string) => {
+    return new Promise<void>((resolve, reject) => {
+      if (document.querySelector(`script[src="${src}"]`)) return resolve();
       const script = document.createElement('script');
       script.src = src;
       script.async = true;
-
-      const timeout = setTimeout(() => {
-        script.remove();
-        reject(new Error(`Timeout loading script: ${src}`));
-      }, 10000);
-
-      script.onload = () => {
-        clearTimeout(timeout);
-        resolve();
-      };
-
-      script.onerror = () => {
-        clearTimeout(timeout);
-        script.remove();
-        reject(new Error(`Failed to load script: ${src}`));
-      };
-
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
       document.head.appendChild(script);
     });
-  }, []);
-
-  const loadARLibraries = React.useCallback(async (): Promise<void> => {
-    // Load A-Frame
-    if (typeof (window as unknown as { AFRAME?: unknown }).AFRAME === 'undefined') {
-      await loadScript('https://aframe.io/releases/1.4.0/aframe.min.js');
-    }
-
-    // Load AR.js (simpler and more reliable than MindAR)
-    if (typeof (window as unknown as { THREEx?: unknown }).THREEx === 'undefined') {
-      await loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/build/aframe-ar.min.js');
-    }
-
-    // Wait for libraries to initialize
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }, [loadScript]);
-
-  const createARScene = React.useCallback(async (): Promise<void> => {
-    if (!sceneRef.current) {
-      throw new Error('Scene container not found');
-    }
-
-    // Clear any existing content
-    sceneRef.current.innerHTML = '';
-
-    // Create AR scene using AR.js with better camera handling
-    const sceneHTML = `
-      <a-scene
-        embedded
-        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3; trackingMethod: best; sourceWidth: 640; sourceHeight: 480; displayWidth: 640; displayHeight: 480;"
-        vr-mode-ui="enabled: false"
-        style="width: 100%; height: 100vh;"
-      >
-        <a-assets timeout="10000">
-          ${experience.content_type === 'model' 
-            ? `<a-asset-item id="arContent" src="${experience.content_url}"></a-asset-item>`
-            : `<video 
-                 id="arContent" 
-                 autoplay 
-                 loop 
-                 muted 
-                 playsinline 
-                 webkit-playsinline 
-                 crossorigin="anonymous"
-                 src="${experience.content_url}"
-                 style="display: none;">
-               </video>`
-          }
-        </a-assets>
-
-        <a-marker preset="hiro" id="marker">
-          ${experience.content_type === 'model'
-            ? `<a-gltf-model 
-                 src="#arContent" 
-                 position="0 0 0" 
-                 scale="1 1 1" 
-                 animation="property: rotation; to: 0 360 0; loop: true; dur: 10000">
-               </a-gltf-model>`
-            : `<a-video 
-                 src="#arContent" 
-                 width="1.6" 
-                 height="0.9" 
-                 position="0 0 0" 
-                 rotation="-90 0 0">
-               </a-video>`
-          }
-        </a-marker>
-
-        <a-entity camera look-controls-enabled="false" arjs-look-controls="smoothingFactor: 0.1"></a-entity>
-      </a-scene>
-    `;
-
-    sceneRef.current.innerHTML = sceneHTML;
-
-    // Wait for scene to initialize and check if camera is working
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('AR scene failed to initialize camera'));
-      }, 8000);
-
-      const checkCamera = () => {
-        const video = document.querySelector('video[data-aframe-canvas]') || 
-                     document.querySelector('#ar-scene video') ||
-                     document.querySelector('video');
-        if (video && video instanceof HTMLVideoElement) {
-          console.log('Video element found:', video, 'videoWidth:', video.videoWidth, 'videoHeight:', video.videoHeight);
-          if (video.videoWidth > 0 && video.videoHeight > 0) {
-            clearTimeout(timeout);
-            resolve(void 0);
-            return;
-          }
-        } else {
-          console.warn('No video element found for AR scene');
-        }
-        setTimeout(checkCamera, 200);
-      };
-
-      // Start checking after a brief delay
-      setTimeout(checkCamera, 1000);
+  };
+  const loadStyle = (href: string) => {
+    return new Promise<void>((resolve, reject) => {
+      if (document.querySelector(`link[href="${href}"]`)) return resolve();
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      link.onload = () => resolve();
+      link.onerror = () => reject(new Error(`Failed to load style: ${href}`));
+      document.head.appendChild(link);
     });
-  }, [sceneRef, experience]);
-
-  const initializeAR = React.useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      setArReady(false);
-
-      // Step 1: Check camera permissions
-      setLoadingStep('Requesting camera access...');
-      await checkCameraPermissions();
-
-      // Step 2: Load AR libraries
-      setLoadingStep('Loading AR libraries...');
-      await loadARLibraries();
-
-      // Step 3: Create AR scene
-      setLoadingStep('Setting up AR scene...');
-      await createARScene();
-
-      setArReady(true);
-      setIsLoading(false);
-
-    } catch (err: unknown) {
-      console.error('Failed to initialize AR:', err);
-      if (err instanceof Error) {
-        setError(err.message);
-      } else if (typeof err === 'string') {
-        setError(err);
-      } else {
-        setError('Failed to initialize AR');
-      }
-      setIsLoading(false);
-    }
-  }, [checkCameraPermissions, loadARLibraries, createARScene]);
+  };
 
   useEffect(() => {
-    if (experience.status !== 'ready') {
-      setError('Experience is not ready yet. Please try again later.');
+    setIsLoading(true);
+    setError(null);
+    setArReady(false);
+    setLoadingStep('Initializing AR...');
+    if (!experience.marker_image_url) {
+      setError('No marker image found for this experience.');
       setIsLoading(false);
       return;
     }
 
-    initializeAR();
+    let mindar;
+    let renderer, scene, camera, anchor;
+    let videoTexture, videoMesh, modelLoader, model;
+    let animationId: number;
+
+    const initializeMindAR = async () => {
+      try {
+        setLoadingStep('Loading MindAR libraries...');
+        await loadStyle('https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image.prod.css');
+        await loadScript('https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js');
+        await loadScript('https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image.prod.js');
+
+        setLoadingStep('Setting up AR scene...');
+        // @ts-ignore
+        const { MindARThree } = window['MINDAR'];
+        // @ts-ignore
+        const THREE = window['THREE'];
+        if (!MindARThree || !THREE) throw new Error('MindAR or THREE not loaded');
+
+        // Download marker image and convert to blob for MindAR
+        setLoadingStep('Downloading marker...');
+        const markerRes = await fetch(experience.marker_image_url);
+        const markerBlob = await markerRes.blob();
+        const markerArrayBuffer = await markerBlob.arrayBuffer();
+        const markerFile = new File([markerArrayBuffer], 'marker.mind', { type: 'application/octet-stream' });
+
+        // Setup MindAR
+        mindar = new MindARThree({
+          container: mindarContainerRef.current,
+          imageTargetSrc: markerFile,
+          maxTrack: 1,
+        });
+        mindarInstanceRef.current = mindar;
+        ({ renderer, scene, camera } = mindar);
+        anchor = mindar.addAnchor(0);
+
+        // Add AR content
+        if (experience.content_type === 'video') {
+          setLoadingStep('Loading video...');
+          const video = document.createElement('video');
+          video.src = experience.content_url;
+          video.crossOrigin = 'anonymous';
+          video.loop = true;
+          video.muted = true;
+          video.playsInline = true;
+          await video.play().catch(() => {});
+          videoTexture = new THREE.VideoTexture(video);
+          videoMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(1.6, 0.9),
+            new THREE.MeshBasicMaterial({ map: videoTexture })
+          );
+          anchor.group.add(videoMesh);
+        } else if (experience.content_type === 'model') {
+          setLoadingStep('Loading 3D model...');
+          await loadScript('https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/loaders/GLTFLoader.js');
+          // @ts-ignore
+          modelLoader = new window['THREE'].GLTFLoader();
+          await new Promise<void>((resolve, reject) => {
+            modelLoader.load(
+              experience.content_url,
+              (gltf: any) => {
+                model = gltf.scene;
+                model.scale.set(1, 1, 1);
+                anchor.group.add(model);
+                resolve();
+              },
+              undefined,
+              (err: any) => reject(err)
+            );
+          });
+        }
+
+        setLoadingStep('Starting camera...');
+        await mindar.start();
+        renderer.setAnimationLoop(() => {
+          renderer.render(scene, camera);
+        });
+        setArReady(true);
+        setIsLoading(false);
+      } catch (err: any) {
+        setError(err.message || 'Failed to initialize MindAR');
+        setIsLoading(false);
+      }
+    };
+
+    initializeMindAR();
 
     return () => {
-      cleanup();
+      setIsLoading(false);
+      setArReady(false);
+      setError(null);
+      if (mindarInstanceRef.current) {
+        mindarInstanceRef.current.stop();
+        mindarInstanceRef.current = null;
+      }
+      if (animationId) cancelAnimationFrame(animationId);
+      if (mindarContainerRef.current) mindarContainerRef.current.innerHTML = '';
     };
-  }, [experience, initializeAR]);
-
-  const cleanup = () => {
-    // Stop any active camera streams
-    if (navigator.mediaDevices?.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then(stream => {
-          stream.getTracks().forEach(track => track.stop());
-        })
-        .catch(() => {
-          // Ignore cleanup errors
-        });
-    }
-  };
-
-  const handleRetry = () => {
-    setIsLoading(true);
-    setError(null);
-    setArReady(false);
-    
-    // Clear the scene
-    if (sceneRef.current) {
-      sceneRef.current.innerHTML = '';
-    }
-    
-    // Restart initialization
-    setTimeout(() => {
-      initializeAR();
-    }, 500);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experience]);
 
   if (error) {
     return (
@@ -266,31 +158,13 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-gray-900 mb-2">AR Error</h2>
           <p className="text-gray-600 mb-6 text-sm">{error}</p>
-          
           <div className="space-y-3">
-            <button
-              onClick={handleRetry}
-              className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Try Again
-            </button>
-            
             <button
               onClick={onBack}
               className="w-full bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 transition-colors"
             >
               Go Back
             </button>
-          </div>
-
-          <div className="mt-6 p-4 bg-gray-50 rounded-lg text-left">
-            <h3 className="font-medium text-gray-900 mb-2">Troubleshooting:</h3>
-            <ul className="text-sm text-gray-600 space-y-1">
-              <li>• Allow camera permissions</li>
-              <li>• Use Chrome or Firefox</li>
-              <li>• Ensure HTTPS connection</li>
-              <li>• Check internet connection</li>
-            </ul>
           </div>
         </div>
       </div>
@@ -309,30 +183,25 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
             <ArrowLeft className="w-5 h-5" />
             <span>Back</span>
           </button>
-          
           <div className="text-center">
             <h1 className="font-bold">{experience.name}</h1>
             {experience.description && (
               <p className="text-sm text-gray-300">{experience.description}</p>
             )}
           </div>
-          
           <div className="w-20" />
         </div>
       </div>
-
       {/* Loading Overlay */}
       {isLoading && (
         <div className="absolute inset-0 bg-black bg-opacity-90 flex items-center justify-center z-40">
           <div className="text-center text-white max-w-sm mx-auto px-4">
             <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4" />
             <p className="text-lg font-medium mb-2">{loadingStep}</p>
-            
             <div className="flex items-center justify-center space-x-2 text-sm text-gray-300 mb-4">
               <Camera className="w-4 h-4" />
               <span>Please allow camera access when prompted</span>
             </div>
-            
             <button
               onClick={onBack}
               className="text-gray-400 hover:text-gray-300 text-sm underline"
@@ -342,7 +211,6 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
           </div>
         </div>
       )}
-
       {/* Instructions */}
       {!isLoading && arReady && (
         <div className="absolute bottom-0 left-0 right-0 z-50 bg-black bg-opacity-50 p-4">
@@ -350,24 +218,23 @@ export default function ARViewer({ experience, onBack }: ARViewerProps) {
             <div className="flex items-center space-x-3 text-white">
               <Eye className="w-6 h-6 text-green-400 flex-shrink-0" />
               <div>
-                <p className="font-medium">Point your camera at the HIRO marker</p>
-                <p className="text-sm text-gray-300">Download and print the HIRO marker from AR.js documentation</p>
+                <p className="font-medium">Point your camera at your uploaded marker image</p>
+                <p className="text-sm text-gray-300">Make sure the marker is well-lit and visible</p>
               </div>
             </div>
           </div>
         </div>
       )}
-
-      {/* AR Scene Container */}
-      <div 
-        ref={sceneRef}
+      {/* MindAR Container */}
+      <div
+        ref={mindarContainerRef}
         className="w-full h-full min-h-screen bg-black"
-        style={{ 
+        style={{
           WebkitUserSelect: 'none',
           userSelect: 'none',
           touchAction: 'none',
           position: 'relative',
-          overflow: 'hidden'
+          overflow: 'hidden',
         }}
       />
     </div>
